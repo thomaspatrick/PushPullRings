@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Push-Pull Rings</title>
+
+    <script src="https://code.jquery.com/jquery-1.12.4.js"></script>
+    <script src="http://code.jquery.com/mobile/1.4.5/jquery.mobile-1.4.5.min.js"></script>
+    <style>
+
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background: url(Content/grid.jpg) no-repeat center center fixed;
+            background-size: cover;
+            overflow: hidden;
+        }
+
+        div.particle {
+            width: 10px;
+            height: 10px;
+            position: absolute;
+            background-image:url(Content/particle.png);
+        }
+
+        div.forcefield {
+            opacity: 0.0;
+            width: 180px;
+            height: 180px;
+            z-index: -100;
+            position: absolute;
+            background-size: 180px 180px;
+        }
+
+        div.pusher {
+            background-image: url(Content/circle_red.png);
+        }
+
+        div.puller {
+            background-image: url(Content/circle_green.png);
+        }
+
+    </style>
+
+    <script>
+        $(document).ready(function() {
+            var particles = [];
+            var forcefields = [];
+            var generators = [];
+            var absorbers = [];
+            var forcefieldIdx = 0;
+            var lastForceFieldIdx = -1;
+
+            $.event.special.tap.emitTapOnTaphold = false;
+
+            var particleIdx = 1;
+            function initparticleDOM() {
+                particleIdx = particleIdx + 1;
+                id = particleIdx;
+                $(" #target").append("<div class='particle' id='particle" + id + "'>");
+                return $("#particle" + id);
+            }
+
+            function calcForce(x,y, forcefield) {
+                var dx = (x - forcefield.x);
+                var dy = (y - forcefield.y);
+                var dist = Math.sqrt(dx * dx + dy * dy) + 0.00000001;
+                var pot = forcefield.type * Math.min((499 + forcefield.magnitude) / (dist * dist), 0.5);
+                return { x : (pot * (dx / dist)), y: (pot * (dy / dist)) };
+            }
+
+            function createparticle() {
+                return {
+                    id: null,
+                    item: initparticleDOM(),
+                    x: Math.random() * window.innerWidth,
+                    y: Math.random() * window.innerHeight,
+                    vx: Math.random() * (Math.random() * 12 - 6),
+                    vy: Math.random() * (Math.random() * 12 - 6),
+                    move: function () {
+                        var me = this;
+                        var accel = { x: 0, y: 0 }
+                        $.each(forcefields, function (idx, forcefield) {
+                            var force = calcForce(me.x, me.y, forcefield);
+                            accel.x = accel.x + force.x;
+                            accel.y = accel.y + force.y;
+                        });
+
+                        me.vx = me.vx + accel.x;
+                        me.vy = me.vy + accel.y;
+
+                        me.x = me.x + me.vx;
+                        me.y = me.y + me.vy;
+
+                        var rectified = wallBounce(me.x, me.y, me.vx, me.vy);
+
+                        me.x = rectified.x;
+                        me.y = rectified.y;
+                        me.vx = rectified.vx;
+                        me.vy = rectified.vy;
+
+                        me.item.css({ left: me.x, top: me.y });
+                    }
+                };
+            }
+
+            function createAllparticles(n) {
+                for (var i = 0; i < n; i++) {
+                    particles.push(createparticle());
+                }
+            }
+
+            var step = 0;
+            var wndow = $(window);
+            var windowWidth = wndow.width();
+            var windowHeight = wndow.height();
+            function moveAllparticles() {
+                step += 1;
+                if (step % 100) {
+                    windowWidth = wndow.width();
+                    windowHeight = wndow.height();
+                }
+                $.each(particles, function (idx, particle) {
+                    particle.move();
+                })
+            }
+
+            // init the particles and set them in motion...
+            createAllparticles(200);
+            window.setInterval(moveAllparticles, 50);
+
+            var holding = false;
+            var holdStartTime = null;
+            var holdStartX = null;
+            var holdStartY = null;
+            var holdCurrentX = null;
+            var holdCurrentY = null;
+            var holdTimer = null;
+            $(document).on('vmousedown', function(e){
+                holding = true;
+                holdStartTime = new Date().getTime();
+                holdStartX = holdCurrentX = e.pageX;
+                holdStartY = holdCurrentY = e.pageY;
+
+                holdTimer = window.setTimeout(function() {
+                    if(Math.abs(holdStartX - holdCurrentX) < 2) {
+                        rightClick();
+                    }
+                }, 1000);
+            });
+
+            function checkHold() {
+                if(Math.abs(holdStartX - holdCurrentX) < 2) {
+                    var holdTime = Date.now() - holdStartTime;
+                    (holdTime > 1000) ? rightClick() : leftClick();
+                }
+            }
+
+            $(document).on('vmousemove', function(e){
+                holdCurrentX = e.pageX;
+                holdCurrentY = e.pageY;
+            });
+
+            $(document).on('vmouseup', function(e){
+                holdCurrentX = e.pageX;
+                holdCurrentY = e.pageY;
+
+                holding = false;
+                if(holdTimer) window.clearTimeout(holdTimer);
+                holdTimer = null;
+
+                if(Math.abs(holdStartX - holdCurrentX) < 2) {
+                    var holdTime = Date.now() - holdStartTime;
+                    if(holdTime < 1000) leftClick();
+                }
+            });
+
+            // left click to make pushers
+            function leftClick(e) {
+                var cx = holdCurrentX;
+                var cy = holdCurrentY;
+                forcefieldIdx = forcefieldIdx + 1;
+                $('#target').append("<div class='forcefield pusher' id='forcefield" + forcefieldIdx + "' style=' top: " + (cy - 90) + "px; left: " + (cx - 90) + "px;'>");
+                var forcefield = $('#forcefield' + forcefieldIdx);
+                forcefield.animate({ opacity: 0.75 }, 500, function () {
+                    forcefields.push({ 'x': cx, 'y': cy, 'type' : 1, magnitude: 1 });
+                });
+                lastForceFieldIdx = forcefieldIdx;
+            };
+
+            // right click to make pullers
+            function rightClick (e) {
+                var cx = holdCurrentX;
+                var cy = holdCurrentY;
+                forcefieldIdx = forcefieldIdx + 1;
+                $('#target').append("<div class='forcefield puller' id='forcefield" + forcefieldIdx + "' style=' top: " + (cy - 90) + "px; left: " + (cx - 90) + "px;'>");
+                var forcefield = $('#forcefield' + forcefieldIdx);
+                forcefield.animate({ opacity: 0.75 }, 500, function () {
+                    forcefields.push({ 'x': cx, 'y': cy, 'type': -1, magnitude: 1 });
+                });
+                lastForceFieldIdx = forcefieldIdx;
+                return false;
+            }
+            //$(document).on("contextmenu", null, rightClick );
+            //$(document).on("taphold", null, rightClick );
+            var wallBounce = function (xx, yy, vxx, vyy) {
+                var result = { x: xx, y: yy, vx: vxx, vy: vyy };
+
+                var margin = 1;
+                var top = margin;
+                var left = margin;
+                var right = windowWidth - margin;
+                var bottom = windowHeight - margin;
+
+                var elasticity = 0.9;
+
+                if (xx > right) {
+                    result.x = right;
+                    result.vx = -Math.abs(vxx) * elasticity;
+                }
+
+                if (yy > bottom) {
+                    result.y = bottom;
+                    result.vy = -Math.abs(vyy) * elasticity;
+                }
+
+                if (xx < left) {
+                    result.x = left;
+                    result.vx = Math.abs(vxx) * elasticity;
+                }
+
+                if (yy < top) {
+                    result.y = top;
+                    result.vy = Math.abs(vyy) * elasticity;
+                }
+
+                return result;
+            }
+        });
+    </script>
+
+</head>
+<body>
+    <div class="particle-panel">
+        <div id="target"></div>
+    </div>
+</body>
+</html>
